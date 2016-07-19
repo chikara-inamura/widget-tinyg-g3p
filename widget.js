@@ -586,6 +586,23 @@ cpdefine("inline:com-chilipeppr-widget-tinyg", ["chilipeppr_ready", "jquerycooki
                 Id: "tinygReset"
             });
         },
+        setFeedCtrlState: function(held) {
+            if (held) {
+                //in feedhold state, buttons look like this: [! | Resume ~ | Wipe %] , with resume having green background
+
+                $('#com-chilipeppr-widget-tinyg .tinyg-feedhold span').addClass('hidden');
+                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').addClass('btn-success');
+                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').text("Resume ~");
+                $('#com-chilipeppr-widget-tinyg .tinyg-queueflush').text("Wipe %");
+                
+            } else {
+                //in a non-feedhold state, buttons look like this: [Feedhold ! | ~ |  %]
+                $('#com-chilipeppr-widget-tinyg .tinyg-feedhold span').removeClass('hidden');
+                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').removeClass('btn-success');
+                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').text("~");
+                $('#com-chilipeppr-widget-tinyg .tinyg-queueflush').text("%");
+            }
+        },
         btnSetup: function () {
 
             $('#com-chilipeppr-widget-tinyg .btn-toolbar .dropdown a').popover();
@@ -615,12 +632,8 @@ cpdefine("inline:com-chilipeppr-widget-tinyg", ["chilipeppr_ready", "jquerycooki
                 chilipeppr.publish('/com-chilipeppr-interface-cnccontroller/plannerpause', "");
                 chilipeppr.publish("/com-chilipeppr-interface-cnccontroller/feedhold", "");
 
-                // update button and others to indicate what's next
-                //$('#com-chilipeppr-widget-tinyg .tinyg-feedhold span').css('opacity', '0.5');
-                $('#com-chilipeppr-widget-tinyg .tinyg-feedhold span').addClass('hidden');
-                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').addClass('btn-success');
-                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').text("Resume ~");
-                $('#com-chilipeppr-widget-tinyg .tinyg-queueflush').text("Wipe %");
+                // update button and others to indicate what's next [also automatically done if 'stat' is reported]
+                that.setFeedCtrlState(true);
             });
 
             // Cycle resume ~
@@ -628,23 +641,16 @@ cpdefine("inline:com-chilipeppr-widget-tinyg", ["chilipeppr_ready", "jquerycooki
                 console.log("tinyg-cyclestart");
                 chilipeppr.publish("/com-chilipeppr-widget-serialport/send", '~\n{"qr":""}\n');
                 chilipeppr.publish('/com-chilipeppr-interface-cnccontroller/plannerresume', "");
-                // update button and others to indicate what's next
-                //$('#com-chilipeppr-widget-tinyg .tinyg-feedhold span').css('opacity', 'initial');
-                $('#com-chilipeppr-widget-tinyg .tinyg-feedhold span').removeClass('hidden');
-                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').removeClass('btn-success');
-                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').text("~");
-                $('#com-chilipeppr-widget-tinyg .tinyg-queueflush').text("%");
+                // update button and others to indicate what's next [also automatically done if 'stat' is reported]
+                that.setFeedCtrlState(false);
             });
             $('#com-chilipeppr-widget-tinyg .tinyg-queueflush').click(function () {
                 console.log("tinyg-queueflush");
                 chilipeppr.publish("/com-chilipeppr-widget-serialport/send", '%\n{"qr":""}\n');
                 chilipeppr.publish('/com-chilipeppr-interface-cnccontroller/plannerresume', "");
 
-                // update button and others to indicate what's next
-                $('#com-chilipeppr-widget-tinyg .tinyg-feedhold span').removeClass('hidden');
-                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').removeClass('btn-success');
-                $('#com-chilipeppr-widget-tinyg .tinyg-cyclestart').text("~");
-                $('#com-chilipeppr-widget-tinyg .tinyg-queueflush').text("%");
+                // update button and others to indicate what's next [also automatically done if 'stat' is reported]
+                that.setFeedCtrlState(false);
             });
 
             $('#com-chilipeppr-widget-tinyg .btn-toolbar .btn').popover({
@@ -937,6 +943,12 @@ cpdefine("inline:com-chilipeppr-widget-tinyg", ["chilipeppr_ready", "jquerycooki
         },
         statEls: null,
         processStats: function (sr) {
+            //TODO:
+              //In upcoming firmware versions, some status paramters change order, and some new ones are added. 
+              //Hence, these values should be refactored to be sensitive to the firmware version we're working with.
+              //Would be very useful to create a standardized form (or at least agree to conform to certain strings and not change them)
+              //for cases where subscribers (to status, for example) are not broken.
+            
             console.log("processStats. sr:", sr);
             if (this.statEls == null) this.statGetDomElements(); // lazy load stat dom for speed
             var e = this.statEls;
@@ -956,12 +968,15 @@ cpdefine("inline:com-chilipeppr-widget-tinyg", ["chilipeppr_ready", "jquerycooki
             if ("dist" in sr) e.distance.text(sr.dist == 0 ? "Absolute" : "Incremental");
             if ("unit" in sr) e.units.text(sr.unit == 0 ? "Inch" : "mm");
             if ("stat" in sr) {
-                var state = ["Initializing", "Ready", "Shutdown", "Stop", "End", "Run", "Hold", "Homing"];
+                var state = ["Initializing", "Ready", "Alarm", "Stop", "End", "Run", "Hold", "Probe", "Cycle", "Homing", "Jog", "Shutdown"];
                 e.state.text(state[sr.stat]);
                 chilipeppr.publish("/com-chilipeppr-interface-cnccontroller/status", state[sr.stat]);
+                
+                //update feed-hold control to reflect machine status.
+                this.setFeedCtrlState(("Hold"===state[sr.stat]));
             }
             if ("momo" in sr) {
-                var motion = ["Traverse", "Straight", "CW Arc", "CCW Arc"];
+                var motion = ["Traverse", "Straight", "CW Arc", "CCW Arc", "None"];
                 e.motion.text(motion[sr.momo]);
             }
             if ("coor" in sr) {
@@ -973,7 +988,7 @@ cpdefine("inline:com-chilipeppr-widget-tinyg", ["chilipeppr_ready", "jquerycooki
                 e.plane.text(plane[sr.plan]);
             }
             if ("path" in sr) {
-                var path = ["Exact Stop", "Exact Path", "Continuous"];
+                var path = ["Exact Path", "Exact Stop", "Continuous"];
                 e.path.text(path[sr.path]);
             }
 
